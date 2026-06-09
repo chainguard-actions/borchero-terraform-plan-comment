@@ -1,6 +1,11 @@
 {
   "owner": "borchero",
   "repo": "terraform-plan-comment",
-  "version": "",
-  "url": "https://github.com/borchero/terraform-plan-comment"
+  "version": "v3.1.0",
+  "commit_sha": "2d41e908725447b1677913001dfb92fa7010c025",
+  "url": "https://github.com/borchero/terraform-plan-comment",
+  "policy_sha": "ff50f15e4b79bfbf764dafdfd2579175a6ea9771",
+  "test_policy_sha": "843adf9e4b8f85d0c08b27b9d0b09dd094b54702",
+  "test_agent_version": "1",
+  "harden_agent_version": "1"
 }

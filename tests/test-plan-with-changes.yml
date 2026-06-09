@@ -1,0 +1,122 @@
+name: Test plan with resource changes
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create mock terraform script and planfile
+        run: |
+          # Create a fake planfile (just needs to exist as a path reference)
+          touch /tmp/test.planfile
+
+          # Create a mock terraform script that returns a plan with one resource to create
+          cat > /tmp/mock-terraform << 'EOF'
+          #!/bin/bash
+          # Mock terraform show command
+          if [[ "$1" == "show" && "$2" == "-no-color" ]]; then
+            cat << 'PLAN'
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-test-bucket"
+                + id     = (known after apply)
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
+          PLAN
+            exit 0
+          fi
+          if [[ "$1" == "show" && "$2" == "-json" ]]; then
+            echo '{"format_version":"1.0","resource_changes":[{"address":"aws_s3_bucket.example","change":{"actions":["create"]}}]}'
+            exit 0
+          fi
+          exit 1
+          EOF
+          chmod +x /tmp/mock-terraform
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: /tmp/test.planfile
+          terraform-cmd: /tmp/mock-terraform
+          skip-comment: "true"
+
+      - name: Assert empty output is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-created is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "actual num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected 1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-updated is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
+        run: |
+          echo "actual num-resources-updated: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected 0, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-deleted is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
+        run: |
+          echo "actual num-resources-deleted: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected 0, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert change-summary contains create count
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "actual change-summary: $ACTUAL"
+          if [[ "$ACTUAL" != *"1 to create"* ]]; then
+            echo "FAIL: expected change-summary to contain '1 to create', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output contains resource name
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          if [[ "$ACTUAL" != *"aws_s3_bucket.example"* ]]; then
+            echo "FAIL: expected markdown to contain resource name 'aws_s3_bucket.example'"
+            exit 1
+          fi
+          echo "PASS"

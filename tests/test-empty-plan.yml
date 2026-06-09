@@ -1,0 +1,86 @@
+name: Test empty plan (no changes)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create mock terraform script and planfile
+        run: |
+          # Create a fake planfile (just needs to exist as a path reference)
+          touch /tmp/test.planfile
+
+          # Create a mock terraform script that returns empty plan output
+          cat > /tmp/mock-terraform << 'EOF'
+          #!/bin/bash
+          # Mock terraform show command
+          if [[ "$1" == "show" && "$2" == "-no-color" ]]; then
+            echo "No changes. Your infrastructure matches the configuration."
+            exit 0
+          fi
+          if [[ "$1" == "show" && "$2" == "-json" ]]; then
+            echo '{"format_version":"1.0","resource_changes":[]}'
+            exit 0
+          fi
+          exit 1
+          EOF
+          chmod +x /tmp/mock-terraform
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: /tmp/test.planfile
+          terraform-cmd: /tmp/mock-terraform
+          skip-comment: "true"
+
+      - name: Assert empty output is true
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty=true, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert change-summary output
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "actual change-summary: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty change-summary"
+            exit 1
+          fi
+          echo "PASS: change-summary=$ACTUAL"
+
+      - name: Assert num-resources-created is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "actual num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected 0, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          echo "PASS"
