@@ -1,0 +1,39 @@
+name: Test basic usage with skip-comment
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-for-testing
+          planfile: ${{ github.workspace }}/actions/hardened/borchero--terraform-plan-comment/v2.6.0/tests/fixtures/plan.tfplan
+          terraform-cmd: ${{ github.workspace }}/actions/hardened/borchero--terraform-plan-comment/v2.6.0/tests/fixtures/mock-terraform.sh
+          skip-comment: "true"
+          header: "📝 Terraform Plan Test"
+
+      - name: Assert empty output is true
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty to be 'true', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty is true"
+
+      - name: Assert markdown output is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected markdown output to be non-empty"
+            exit 1
+          fi
+          echo "PASS: markdown output is present"
