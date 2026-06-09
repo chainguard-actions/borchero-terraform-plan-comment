@@ -1,0 +1,74 @@
+name: Test expand-comment with pr-number
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake planfile
+        run: |
+          mkdir -p /tmp/tfplan-expand
+          touch /tmp/tfplan-expand/plan.tfplan
+
+      - name: Create fake terraform wrapper
+        run: |
+          mkdir -p /tmp/fake-tf-expand
+          cat > /tmp/fake-tf-expand/terraform << 'EOF'
+          #!/bin/bash
+          if [[ "$1" == "show" ]]; then
+            echo '{
+              "format_version": "1.0",
+              "resource_changes": [
+                {
+                  "address": "aws_s3_bucket.example",
+                  "type": "aws_s3_bucket",
+                  "name": "example",
+                  "change": {
+                    "actions": ["create"],
+                    "before": null,
+                    "after": {"bucket": "my-bucket"}
+                  }
+                }
+              ]
+            }'
+          fi
+          EOF
+          chmod +x /tmp/fake-tf-expand/terraform
+
+      - id: action
+        uses: .
+        env:
+          GITHUB_EVENT_NAME: workflow_dispatch
+        with:
+          token: fake-token-for-testing
+          planfile: /tmp/tfplan-expand/plan.tfplan
+          terraform-cmd: /tmp/fake-tf-expand/terraform
+          working-directory: /tmp/tfplan-expand
+          skip-comment: "true"
+          expand-comment: "true"
+          pr-number: "42"
+          header: "📝 Terraform Plan (Expanded)"
+
+      - name: Assert empty output is false (changes present)
+        env:
+          EMPTY: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "empty: $EMPTY"
+          if [ "$EMPTY" != "false" ]; then
+            echo "FAIL: expected empty=false for a plan with changes, got '$EMPTY'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output is non-empty
+        env:
+          MARKDOWN: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "markdown length: ${#MARKDOWN}"
+          if [ -z "$MARKDOWN" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          echo "PASS"

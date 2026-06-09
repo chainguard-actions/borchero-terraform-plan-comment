@@ -1,0 +1,53 @@
+name: Test skip-empty with no-change plan
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake planfile
+        run: |
+          mkdir -p /tmp/tfplan-empty
+          touch /tmp/tfplan-empty/plan.tfplan
+
+      - name: Create fake terraform wrapper (no changes)
+        run: |
+          mkdir -p /tmp/fake-tf-empty
+          cat > /tmp/fake-tf-empty/terraform << 'EOF'
+          #!/bin/bash
+          # Simulate `terraform show` with no resource changes
+          if [[ "$1" == "show" ]]; then
+            echo '{
+              "format_version": "1.0",
+              "resource_changes": []
+            }'
+          fi
+          EOF
+          chmod +x /tmp/fake-tf-empty/terraform
+
+      - id: action
+        uses: .
+        env:
+          GITHUB_EVENT_NAME: pull_request
+          GITHUB_REF: refs/pull/1/merge
+        with:
+          token: fake-token-for-testing
+          planfile: /tmp/tfplan-empty/plan.tfplan
+          terraform-cmd: /tmp/fake-tf-empty/terraform
+          working-directory: /tmp/tfplan-empty
+          skip-empty: "true"
+          skip-comment: "true"
+          header: "📝 Terraform Plan (Empty)"
+
+      - name: Assert empty output is true
+        env:
+          EMPTY: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "empty: $EMPTY"
+          if [ "$EMPTY" != "true" ]; then
+            echo "FAIL: expected empty=true for a plan with no changes, got '$EMPTY'"
+            exit 1
+          fi
+          echo "PASS"
