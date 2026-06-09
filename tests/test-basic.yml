@@ -1,0 +1,154 @@
+name: Test basic usage with planfile and token
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create terraform planfile
+        run: |
+          mkdir -p /tmp/tfplan
+          # Install terraform to generate a real plan binary, or use a pre-built show output
+          # We'll create a text file that simulates terraform show output
+          cat > /tmp/tfplan/plan.txt << 'EOF'
+          Terraform used the selected providers to generate the following execution
+          plan. Resource actions are indicated with the following symbols:
+            + create
+
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-example-bucket"
+                + id     = (known after apply)
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
+          EOF
+
+      - name: Install terraform
+        run: |
+          wget -q https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip 2>/dev/null || true
+          if [ -f terraform_1.6.0_linux_amd64.zip ]; then
+            unzip -q terraform_1.6.0_linux_amd64.zip
+            sudo mv terraform /usr/local/bin/
+          fi
+
+      - name: Create minimal terraform config and plan
+        run: |
+          mkdir -p /tmp/tfdir
+          cat > /tmp/tfdir/main.tf << 'EOF'
+          resource "null_resource" "example" {}
+          EOF
+          cd /tmp/tfdir
+          terraform init -backend=false 2>/dev/null || true
+          terraform plan -out=/tmp/tfplan/plan.tfplan 2>/dev/null || true
+          # If terraform isn't available or plan fails, create a dummy binary plan file
+          if [ ! -f /tmp/tfplan/plan.tfplan ]; then
+            # Create a minimal binary that terraform show can parse
+            # Instead, we'll use a mock terraform command
+            touch /tmp/tfplan/plan.tfplan
+          fi
+
+      - name: Create mock terraform script
+        run: |
+          # Create a mock terraform that outputs a plan when called with 'show'
+          cat > /tmp/mock-terraform << 'EOF'
+          #!/bin/bash
+          if [[ "$1" == "show" ]]; then
+            cat << 'PLAN'
+          Terraform used the selected providers to generate the following execution
+          plan. Resource actions are indicated with the following symbols:
+            + create
+
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-example-bucket"
+                + id     = (known after apply)
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
+          PLAN
+          fi
+          EOF
+          chmod +x /tmp/mock-terraform
+          touch /tmp/tfplan/plan.tfplan
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-for-testing
+          planfile: /tmp/tfplan/plan.tfplan
+          terraform-cmd: /tmp/mock-terraform
+          skip-comment: "true"
+          header: "📝 Terraform Plan Test"
+
+      - name: Assert empty output is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "empty: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected 'empty' output to be set"
+            exit 1
+          fi
+          echo "PASS: empty output is '$ACTUAL'"
+
+      - name: Assert markdown output is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected 'markdown' output to be non-empty"
+            exit 1
+          fi
+          echo "PASS: markdown output is set"
+
+      - name: Assert change-summary output is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "change-summary: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected 'change-summary' output to be set"
+            exit 1
+          fi
+          echo "PASS: change-summary output is '$ACTUAL'"
+
+      - name: Assert num-resources-created output
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected num-resources-created to be '1', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-updated output
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
+        run: |
+          echo "num-resources-updated: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-updated to be '0', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-deleted output
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
+        run: |
+          echo "num-resources-deleted: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-deleted to be '0', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
