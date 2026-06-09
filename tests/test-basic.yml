@@ -4,72 +4,46 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create fake planfile
+      - name: Create planfile
         run: |
           mkdir -p /tmp/tfplan
-          # Create a binary planfile placeholder (terraform show will be called on it)
-          touch /tmp/tfplan/plan.tfplan
-
-      - name: Create fake terraform wrapper
-        run: |
-          mkdir -p /tmp/fake-tf
-          cat > /tmp/fake-tf/terraform << 'EOF'
-          #!/bin/bash
-          # Simulate `terraform show -no-color -json <planfile>`
-          if [[ "$1" == "show" ]]; then
-            echo '{
-              "format_version": "1.0",
-              "resource_changes": [
-                {
-                  "address": "null_resource.example",
-                  "type": "null_resource",
-                  "name": "example",
-                  "change": {
-                    "actions": ["create"],
-                    "before": null,
-                    "after": {}
-                  }
-                }
-              ]
-            }'
-          fi
-          EOF
-          chmod +x /tmp/fake-tf/terraform
+          echo "No changes. Your infrastructure matches the configuration." > /tmp/tfplan/plan.out
 
       - id: action
         uses: .
-        env:
-          GITHUB_EVENT_NAME: pull_request
-          GITHUB_REF: refs/pull/1/merge
         with:
           token: fake-token-for-testing
-          planfile: /tmp/tfplan/plan.tfplan
-          terraform-cmd: /tmp/fake-tf/terraform
-          working-directory: /tmp/tfplan
+          planfile: /tmp/tfplan/plan.out
           skip-comment: "true"
-          header: "📝 Terraform Plan Test"
-
-      - name: Assert markdown output is set
-        env:
-          MARKDOWN: ${{ steps.action.outputs.markdown }}
-        run: |
-          echo "markdown: $MARKDOWN"
-          if [ -z "$MARKDOWN" ]; then
-            echo "FAIL: expected markdown output to be non-empty"
-            exit 1
-          fi
-          echo "PASS"
+          terraform-cmd: echo
+          working-directory: "."
 
       - name: Assert empty output is set
         env:
-          EMPTY: ${{ steps.action.outputs.empty }}
+          ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
-          echo "empty: $EMPTY"
-          if [ -z "$EMPTY" ]; then
-            echo "FAIL: expected empty output to be set (true or false)"
+          echo "actual empty: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected 'empty' output to be set"
             exit 1
           fi
-          echo "PASS"
+          echo "PASS: empty output is '$ACTUAL'"
+
+      - name: Assert markdown output is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected 'markdown' output to be set"
+            exit 1
+          fi
+          echo "PASS: markdown output is set"

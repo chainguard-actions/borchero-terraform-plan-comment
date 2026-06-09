@@ -1,53 +1,40 @@
-name: Test skip-empty with no-change plan
+name: Test skip-empty with no changes
 on:
   workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create fake planfile
+      - name: Create planfile with no changes
         run: |
-          mkdir -p /tmp/tfplan-empty
-          touch /tmp/tfplan-empty/plan.tfplan
-
-      - name: Create fake terraform wrapper (no changes)
-        run: |
-          mkdir -p /tmp/fake-tf-empty
-          cat > /tmp/fake-tf-empty/terraform << 'EOF'
-          #!/bin/bash
-          # Simulate `terraform show` with no resource changes
-          if [[ "$1" == "show" ]]; then
-            echo '{
-              "format_version": "1.0",
-              "resource_changes": []
-            }'
-          fi
-          EOF
-          chmod +x /tmp/fake-tf-empty/terraform
+          mkdir -p /tmp/tfplan
+          echo "No changes. Your infrastructure matches the configuration." > /tmp/tfplan/plan.out
 
       - id: action
         uses: .
-        env:
-          GITHUB_EVENT_NAME: pull_request
-          GITHUB_REF: refs/pull/1/merge
         with:
           token: fake-token-for-testing
-          planfile: /tmp/tfplan-empty/plan.tfplan
-          terraform-cmd: /tmp/fake-tf-empty/terraform
-          working-directory: /tmp/tfplan-empty
-          skip-empty: "true"
+          planfile: /tmp/tfplan/plan.out
           skip-comment: "true"
-          header: "📝 Terraform Plan (Empty)"
+          skip-empty: "true"
+          terraform-cmd: echo
+          working-directory: "."
+          header: "📝 Terraform Plan Test"
 
       - name: Assert empty output is true
         env:
-          EMPTY: ${{ steps.action.outputs.empty }}
+          ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
-          echo "empty: $EMPTY"
-          if [ "$EMPTY" != "true" ]; then
-            echo "FAIL: expected empty=true for a plan with no changes, got '$EMPTY'"
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected 'empty' output to be 'true', got '$ACTUAL'"
             exit 1
           fi
-          echo "PASS"
+          echo "PASS: empty output is 'true'"
