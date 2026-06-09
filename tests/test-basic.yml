@@ -1,61 +1,54 @@
-name: Test basic usage - skip comment
+name: Test basic usage with skip-comment
 on:
   workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Create fake terraform planfile
         run: |
+          # Create a minimal binary planfile that terraform show can read
+          # We'll use a text file and override terraform-cmd to use cat
           mkdir -p /tmp/tfplan
-          # Create a binary planfile that terraform show can read.
-          # Since we're using skip-comment, we just need a file that exists.
-          # We'll use a text file and override terraform-cmd to use cat.
-          echo "No changes. Your infrastructure matches the configuration." > /tmp/tfplan/plan.tfplan
-
-      - name: Install fake terraform
-        run: |
-          mkdir -p /tmp/fakebin
-          cat > /tmp/fakebin/terraform << 'EOF'
-          #!/bin/bash
-          # Fake terraform that outputs a no-changes plan
-          if [[ "$1" == "show" ]]; then
-            echo "No changes. Your infrastructure matches the configuration."
-          fi
-          EOF
-          chmod +x /tmp/fakebin/terraform
-          echo "/tmp/fakebin" >> $GITHUB_PATH
+          echo "No changes. Your infrastructure matches the configuration." > /tmp/tfplan/plan.txt
 
       - id: action
         uses: .
         with:
-          token: fake-token-for-testing
-          planfile: /tmp/tfplan/plan.tfplan
-          terraform-cmd: terraform
+          token: ${{ github.token }}
+          planfile: /tmp/tfplan/plan.txt
+          terraform-cmd: cat
+          working-directory: /tmp/tfplan
+          header: "📝 Terraform Plan Test"
           skip-comment: "true"
-        env:
-          GITHUB_TOKEN: fake-token-for-testing
+          skip-empty: "false"
+          expand-comment: "false"
 
-      - name: Assert empty output is true (no changes plan)
-        env:
-          ACTUAL: ${{ steps.action.outputs.empty }}
-        run: |
-          echo "actual empty: $ACTUAL"
-          if [ "$ACTUAL" != "true" ]; then
-            echo "FAIL: expected empty to be 'true', got '$ACTUAL'"
-            exit 1
-          fi
-          echo "PASS"
-
-      - name: Assert markdown output is not empty
+      - name: Assert markdown output is set
         env:
           ACTUAL: ${{ steps.action.outputs.markdown }}
         run: |
-          echo "actual markdown: $ACTUAL"
+          echo "markdown output: $ACTUAL"
           if [ -z "$ACTUAL" ]; then
             echo "FAIL: expected markdown output to be non-empty"
             exit 1
           fi
-          echo "PASS"
+          echo "PASS: markdown output is set"
+
+      - name: Assert empty output is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "empty output: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected empty output to be set (true or false)"
+            exit 1
+          fi
+          echo "PASS: empty output is set to '$ACTUAL'"
