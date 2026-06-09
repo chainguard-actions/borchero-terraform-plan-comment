@@ -1,0 +1,61 @@
+name: Test basic usage - skip comment
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake terraform planfile
+        run: |
+          mkdir -p /tmp/tfplan
+          # Create a binary planfile that terraform show can read.
+          # Since we're using skip-comment, we just need a file that exists.
+          # We'll use a text file and override terraform-cmd to use cat.
+          echo "No changes. Your infrastructure matches the configuration." > /tmp/tfplan/plan.tfplan
+
+      - name: Install fake terraform
+        run: |
+          mkdir -p /tmp/fakebin
+          cat > /tmp/fakebin/terraform << 'EOF'
+          #!/bin/bash
+          # Fake terraform that outputs a no-changes plan
+          if [[ "$1" == "show" ]]; then
+            echo "No changes. Your infrastructure matches the configuration."
+          fi
+          EOF
+          chmod +x /tmp/fakebin/terraform
+          echo "/tmp/fakebin" >> $GITHUB_PATH
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-for-testing
+          planfile: /tmp/tfplan/plan.tfplan
+          terraform-cmd: terraform
+          skip-comment: "true"
+        env:
+          GITHUB_TOKEN: fake-token-for-testing
+
+      - name: Assert empty output is true (no changes plan)
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty to be 'true', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output is not empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected markdown output to be non-empty"
+            exit 1
+          fi
+          echo "PASS"

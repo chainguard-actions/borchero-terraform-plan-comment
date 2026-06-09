@@ -1,0 +1,66 @@
+name: Test skip-empty with changes
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install fake terraform with changes output
+        run: |
+          mkdir -p /tmp/fakebin
+          cat > /tmp/fakebin/terraform << 'EOF'
+          #!/bin/bash
+          # Fake terraform that outputs a plan with changes
+          if [[ "$1" == "show" ]]; then
+            echo "Terraform will perform the following actions:"
+            echo ""
+            echo "  # aws_instance.example will be created"
+            echo "  + resource \"aws_instance\" \"example\" {"
+            echo "      + ami = \"ami-12345678\""
+            echo "    }"
+            echo ""
+            echo "Plan: 1 to add, 0 to change, 0 to destroy."
+          fi
+          EOF
+          chmod +x /tmp/fakebin/terraform
+          echo "/tmp/fakebin" >> $GITHUB_PATH
+
+      - name: Create fake planfile
+        run: |
+          mkdir -p /tmp/tfplan
+          echo "fake plan binary content" > /tmp/tfplan/plan.tfplan
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-for-testing
+          planfile: /tmp/tfplan/plan.tfplan
+          terraform-cmd: terraform
+          skip-comment: "true"
+          skip-empty: "true"
+        env:
+          GITHUB_TOKEN: fake-token-for-testing
+
+      - name: Assert empty output is false (plan has changes)
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty to be 'false', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output contains plan details
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected markdown output to be non-empty"
+            exit 1
+          fi
+          echo "PASS"

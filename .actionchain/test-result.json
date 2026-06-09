@@ -1,0 +1,7 @@
+{
+  "ran": true,
+  "passed": true,
+  "output": "$ jest\n(node:137) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\nPASS tests/planfile.test.ts (105.197 s)\n(node:136) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\nPASS tests/e2e.test.ts (105.987 s)\n\nTest Suites: 2 passed, 2 total\nTests:       12 passed, 12 total\nSnapshots:   0 total\nTime:        107.036 s\nRan all test suites.\n",
+  "duration_ms": 108535,
+  "exit_code": 0
+}
