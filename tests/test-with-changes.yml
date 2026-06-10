@@ -1,4 +1,4 @@
-name: Test basic usage with skip-comment
+name: Test with terraform plan changes
 on:
   workflow_dispatch:
 jobs:
@@ -12,27 +12,37 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create planfile with no changes
+      - name: Create planfile with changes
         run: |
-          mkdir -p /tmp/tfplan-test
-          cat > /tmp/tfplan-test/plan.txt << 'EOF'
-          No changes. Your infrastructure matches the configuration.
+          mkdir -p /tmp/tfplan-changes
+          cat > /tmp/tfplan-changes/plan.txt << 'EOF'
+          Terraform used the selected providers to generate the following execution plan.
+
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-example-bucket"
+                + id     = (known after apply)
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
           EOF
 
       - id: action
         uses: .
         with:
           token: fake-token-for-testing
-          planfile: /tmp/tfplan-test/plan.txt
+          planfile: /tmp/tfplan-changes/plan.txt
           skip-comment: "true"
 
-      - name: Assert empty output is true
+      - name: Assert empty output is false
         env:
           ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
           echo "actual empty: $ACTUAL"
-          if [ "$ACTUAL" != "true" ]; then
-            echo "FAIL: expected empty to be 'true' but got '$ACTUAL'"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty to be 'false' but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
