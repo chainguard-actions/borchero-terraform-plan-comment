@@ -1,7 +1,5 @@
 {
   "ran": true,
   "passed": false,
-  "output": "$ jest\nFAIL tests/render.test.ts\n  ● Test suite failed to run\n\n    A jest worker process (pid=136) was terminated by another process: signal=SIGKILL, exitCode=null. Operating system logs may contain more information on why this occurred.\n\n      at ChildProcessWorker._onExit (node_modules/.pnpm/jest-worker@30.2.0/node_modules/jest-worker/build/index.js:968:23)\n\n(node:137) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\nPASS tests/planfile.test.ts (29.95 s)\nFAIL tests/e2e.test.ts\n  ● Test suite failed to run\n\n    A jest worker process (pid=135) was terminated by another process: signal=SIGKILL, exitCode=null. Operating system logs may contain more information on why this occurred.\n\n      at ChildProcessWorker._onExit (node_modules/.pnpm/jest-worker@30.2.0/node_modules/jest-worker/build/index.js:968:23)\n\nTest Suites: 2 failed, 1 passed, 3 total\nTests:       6 passed, 6 total\nSnapshots:   0 total\nTime:        44.665 s\nRan all test suites.\n[ELIFECYCLE] Test failed. See above for more details.\n",
-  "duration_ms": 46047,
   "exit_code": 1
 }

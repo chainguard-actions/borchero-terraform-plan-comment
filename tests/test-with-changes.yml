@@ -1,4 +1,4 @@
-name: Test basic usage - skip-comment with no changes
+name: Test plan with changes - skip-comment
 on:
   workflow_dispatch:
 jobs:
@@ -12,50 +12,54 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create mock terraform script
+      - name: Create mock terraform script (with changes)
         run: |
           mkdir -p /tmp/mock-bin
           cat > /tmp/mock-bin/terraform << 'EOF'
           #!/bin/bash
-          # Mock terraform that returns a no-changes plan
-          echo "No changes. Your infrastructure matches the configuration."
+          echo "Terraform will perform the following actions:"
           echo ""
-          echo "Terraform has compared your real infrastructure against your configuration"
-          echo "and found no differences, so no changes are needed."
+          echo "  # aws_instance.example will be created"
+          echo "  + resource \"aws_instance\" \"example\" {"
+          echo "      + ami           = \"ami-0c55b159cbfafe1f0\""
+          echo "      + instance_type = \"t2.micro\""
+          echo "    }"
+          echo ""
+          echo "Plan: 1 to add, 0 to change, 0 to destroy."
           EOF
           chmod +x /tmp/mock-bin/terraform
           echo "/tmp/mock-bin" >> $GITHUB_PATH
 
       - name: Create planfile
         run: |
-          touch /tmp/test.tfplan
+          touch /tmp/test-changes.tfplan
 
       - id: action
         uses: .
         with:
           token: fake-token-for-testing
-          planfile: /tmp/test.tfplan
+          planfile: /tmp/test-changes.tfplan
           terraform-cmd: /tmp/mock-bin/terraform
           skip-comment: "true"
 
-      - name: Assert empty output is set
+      - name: Assert empty output is false (changes exist)
         env:
           ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
           echo "actual empty: $ACTUAL"
-          if [ -z "$ACTUAL" ]; then
-            echo "FAIL: expected 'empty' output to be set"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected 'empty' output to be 'false', got '$ACTUAL'"
             exit 1
           fi
-          echo "PASS: empty output is '$ACTUAL'"
+          echo "PASS: empty output is 'false'"
 
-      - name: Assert markdown output is set
+      - name: Assert markdown output contains plan content
         env:
           ACTUAL: ${{ steps.action.outputs.markdown }}
         run: |
           echo "actual markdown: $ACTUAL"
           if [ -z "$ACTUAL" ]; then
-            echo "FAIL: expected 'markdown' output to be set"
+            echo "FAIL: expected 'markdown' output to be non-empty"
             exit 1
           fi
           echo "PASS: markdown output is set"

@@ -1,49 +1,50 @@
-name: Test skip-empty with no changes
+name: Test skip-empty with no-change plan
 on:
   workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create a fake planfile
+      - name: Create mock terraform script (no changes)
         run: |
-          mkdir -p /tmp/tfplan
-          echo "fake plan content" > /tmp/tfplan/plan.tfplan
-
-      - name: Create fake terraform binary that reports no changes
-        run: |
-          mkdir -p /tmp/fake-tf-bin
-          cat > /tmp/fake-tf-bin/terraform << 'EOF'
+          mkdir -p /tmp/mock-bin
+          cat > /tmp/mock-bin/terraform << 'EOF'
           #!/bin/bash
-          if [[ "$1" == "show" ]]; then
-            echo "No changes. Your infrastructure matches the configuration."
-            exit 0
-          fi
-          exit 0
+          echo "No changes. Your infrastructure matches the configuration."
+          echo ""
+          echo "Terraform has compared your real infrastructure against your configuration"
+          echo "and found no differences, so no changes are needed."
           EOF
-          chmod +x /tmp/fake-tf-bin/terraform
-          echo "/tmp/fake-tf-bin" >> $GITHUB_PATH
+          chmod +x /tmp/mock-bin/terraform
+          echo "/tmp/mock-bin" >> $GITHUB_PATH
+
+      - name: Create planfile
+        run: |
+          touch /tmp/test-skip.tfplan
 
       - id: action
         uses: .
         with:
           token: fake-token-for-testing
-          planfile: /tmp/tfplan/plan.tfplan
-          terraform-cmd: terraform
+          planfile: /tmp/test-skip.tfplan
+          terraform-cmd: /tmp/mock-bin/terraform
           skip-empty: "true"
           skip-comment: "true"
-          pr-number: "1"
-          header: "📝 Terraform Plan (No Changes)"
 
       - name: Assert empty output is true
         env:
-          EMPTY: ${{ steps.action.outputs.empty }}
+          ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
-          echo "empty: $EMPTY"
-          if [ "$EMPTY" != "true" ]; then
-            echo "FAIL: expected empty=true when plan has no changes, got '$EMPTY'"
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected 'empty' output to be 'true', got '$ACTUAL'"
             exit 1
           fi
-          echo "PASS: empty is true as expected"
+          echo "PASS: empty output is 'true'"
