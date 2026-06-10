@@ -1,4 +1,4 @@
-name: Test basic usage with no-changes plan
+name: Test plan with changes
 on:
   workflow_dispatch:
 jobs:
@@ -14,22 +14,23 @@ jobs:
 
       - name: Create planfile from fixture
         run: |
-          cp $GITHUB_WORKSPACE/actions/hardened/borchero--terraform-plan-comment/v3.0.0/tests/fixtures/plan-no-changes.tfplan /tmp/plan.tfplan
+          cp $GITHUB_WORKSPACE/actions/hardened/borchero--terraform-plan-comment/v3.0.0/tests/fixtures/plan-with-changes.tfplan /tmp/plan-changes.tfplan
 
       - id: action
         uses: .
         with:
           token: fake-token-for-testing
-          planfile: /tmp/plan.tfplan
+          planfile: /tmp/plan-changes.tfplan
           skip-comment: "true"
+          header: "📝 Test Plan"
 
-      - name: Assert empty output is true (no changes plan)
+      - name: Assert empty output is false (plan has changes)
         env:
           ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
           echo "actual empty: $ACTUAL"
-          if [ "$ACTUAL" != "true" ]; then
-            echo "FAIL: expected empty=true for a no-changes plan, got '$ACTUAL'"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false for a plan with changes, got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
@@ -40,7 +41,7 @@ jobs:
         run: |
           echo "actual markdown length: ${#ACTUAL}"
           if [ -z "$ACTUAL" ]; then
-            echo "FAIL: expected non-empty markdown output"
+            echo "FAIL: expected non-empty markdown output for plan with changes"
             exit 1
           fi
           echo "PASS"
