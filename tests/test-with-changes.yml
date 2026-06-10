@@ -1,0 +1,91 @@
+name: Test terraform plan comment with changes
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Make mock terraform executable
+        run: chmod +x $GITHUB_WORKSPACE/actions/hardened/borchero--terraform-plan-comment/v3.1.0/tests/fixtures/mock-terraform-with-changes.sh
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-for-testing
+          planfile: ${{ github.workspace }}/actions/hardened/borchero--terraform-plan-comment/v3.1.0/tests/fixtures/dummy.tfplan
+          terraform-cmd: ${{ github.workspace }}/actions/hardened/borchero--terraform-plan-comment/v3.1.0/tests/fixtures/mock-terraform-with-changes.sh
+          skip-comment: "true"
+          header: "📝 Terraform Plan Test"
+
+      - name: Assert empty is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty to be 'false', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-created is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "actual num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected num-resources-created to be '1', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-updated is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
+        run: |
+          echo "actual num-resources-updated: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-updated to be '0', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-deleted is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
+        run: |
+          echo "actual num-resources-deleted: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-deleted to be '0', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected markdown to be non-empty"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert change-summary is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "actual change-summary: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected change-summary to be non-empty"
+            exit 1
+          fi
+          echo "PASS"
