@@ -1,0 +1,63 @@
+name: Test skip-empty with empty plan
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create mock terraform script
+        run: |
+          mkdir -p /tmp/mock-bin
+          cat > /tmp/mock-bin/terraform << 'EOF'
+          #!/bin/bash
+          if [[ "$1" == "show" && "$2" == "-json" ]]; then
+            echo '{"format_version":"1.0","resource_changes":[]}'
+          elif [[ "$1" == "show" && "$2" == "-no-color" ]]; then
+            echo "No changes. Your infrastructure matches the configuration."
+          fi
+          EOF
+          chmod +x /tmp/mock-bin/terraform
+          echo "/tmp/mock-bin" >> "$GITHUB_PATH"
+
+      - name: Create dummy planfile
+        run: touch /tmp/skipempty.planfile
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-not-used
+          planfile: /tmp/skipempty.planfile
+          terraform-cmd: terraform
+          working-directory: /tmp
+          skip-empty: "true"
+          skip-comment: "true"
+
+      - name: Assert empty output is true
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty=true, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output is non-empty string
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output even for empty plan"
+            exit 1
+          fi
+          echo "PASS"

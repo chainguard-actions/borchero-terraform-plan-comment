@@ -1,0 +1,52 @@
+name: Test custom header in markdown output
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create mock terraform script
+        run: |
+          mkdir -p /tmp/mock-bin
+          cat > /tmp/mock-bin/terraform << 'EOF'
+          #!/bin/bash
+          if [[ "$1" == "show" && "$2" == "-json" ]]; then
+            echo '{"format_version":"1.0","resource_changes":[]}'
+          elif [[ "$1" == "show" && "$2" == "-no-color" ]]; then
+            echo "No changes. Your infrastructure matches the configuration."
+          fi
+          EOF
+          chmod +x /tmp/mock-bin/terraform
+          echo "/tmp/mock-bin" >> "$GITHUB_PATH"
+
+      - name: Create dummy planfile
+        run: touch /tmp/custom.planfile
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-not-used
+          planfile: /tmp/custom.planfile
+          terraform-cmd: terraform
+          working-directory: /tmp
+          header: "My Custom Header"
+          skip-comment: "true"
+
+      - name: Assert markdown contains custom header
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [[ "$ACTUAL" != *"My Custom Header"* ]]; then
+            echo "FAIL: expected markdown to contain 'My Custom Header'"
+            exit 1
+          fi
+          echo "PASS"

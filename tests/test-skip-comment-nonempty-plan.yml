@@ -1,0 +1,84 @@
+name: Test skip-comment with non-empty plan
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create mock terraform script
+        run: |
+          mkdir -p /tmp/mock-bin
+          # Create a mock terraform that outputs a valid plan JSON with a 'create' resource change
+          # and a matching human-readable plan for 'show -no-color'
+          cat > /tmp/mock-bin/terraform << 'EOF'
+          #!/bin/bash
+          if [[ "$1" == "show" && "$2" == "-json" ]]; then
+            echo '{"format_version":"1.0","resource_changes":[{"address":"aws_s3_bucket.example","change":{"actions":["create"]}}]}'
+          elif [[ "$1" == "show" && "$2" == "-no-color" ]]; then
+            cat << 'PLAN'
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-bucket"
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
+          PLAN
+          fi
+          EOF
+          chmod +x /tmp/mock-bin/terraform
+          echo "/tmp/mock-bin" >> "$GITHUB_PATH"
+
+      - name: Create dummy planfile
+        run: touch /tmp/nonempty.planfile
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-not-used
+          planfile: /tmp/nonempty.planfile
+          terraform-cmd: terraform
+          working-directory: /tmp
+          skip-comment: "true"
+
+      - name: Assert empty output is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown contains resource name
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [[ "$ACTUAL" != *"aws_s3_bucket.example"* ]]; then
+            echo "FAIL: expected markdown to contain 'aws_s3_bucket.example'"
+            exit 1
+          fi
+          echo "PASS"

@@ -1,0 +1,52 @@
+name: Terraform Plan Comment
+description: Post the output of `terraform plan` to a pull request comment.
+author: Oliver Borchert
+branding:
+  icon: git-pull-request
+  color: purple
+inputs:
+  token:
+    description: The token to use for authenticating against the GitHub API.
+    required: true
+  planfile:
+    description: The path to the planfile whose changes to post.
+    required: true
+  terraform-cmd:
+    description: The command to execute for calling the Terraform binary.
+    required: true
+    default: terraform
+  working-directory:
+    description: The directory where the Terraform binary should be called.
+    required: true
+    default: "."
+  header:
+    description: The header to use for the pull request comment.
+    required: true
+    default: 📝 Terraform Plan
+  skip-empty:
+    description: Whether to skip posting a pull request comment when no changes need to be performed.
+    required: true
+    default: "false"
+  skip-comment:
+    description: Whether to skip posting a pull request comment entirely.
+    required: true
+    default: "false"
+  pr-number:
+    description:
+      The pull request number to post the comment to. When not provided, the action will attempt to automatically
+      determine the PR number from the event context. This is useful for workflow_dispatch triggers.
+    required: false
+    default: ""
+  expand-comment:
+    description: Whether to expand the comment details by default.
+    required: true
+    default: "false"
+outputs:
+  markdown:
+    description: The raw markdown output of the terraform plan
+  empty:
+    description: Whether the terraform plan contains any change or not
+runs:
+  pre: chainguard-phonehome.js
+  using: node20
+  main: dist/index.js
