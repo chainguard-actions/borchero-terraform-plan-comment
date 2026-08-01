@@ -1,0 +1,120 @@
+name: Test Terraform plan with recreated resources
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up fake terraform binary with recreated resource plan
+        run: |
+          mkdir -p /tmp/tfplan
+          echo "fake-plan-binary" > /tmp/tfplan/plan.tfplan
+
+          # Plan with 1 resource to be recreated (delete+create)
+          cat > /tmp/fake-terraform.sh << 'SCRIPT'
+          #!/bin/sh
+          shift  # skip "show"
+          if [ "$1" = "-json" ]; then
+            cat << 'JSON'
+          {
+            "format_version": "1.2",
+            "terraform_version": "1.6.0",
+            "resource_changes": [
+              {
+                "address": "aws_instance.server",
+                "change": {
+                  "actions": ["delete", "create"],
+                  "before": {"ami": "ami-old", "instance_type": "t2.micro"},
+                  "after": {"ami": "ami-new", "instance_type": "t2.micro"}
+                }
+              }
+            ]
+          }
+          JSON
+          elif [ "$1" = "-no-color" ]; then
+            cat << 'PLAN'
+          Terraform will perform the following actions:
+
+            # aws_instance.server must be replaced
+          -/+ resource "aws_instance" "server" {
+                ~ ami           = "ami-old" -> "ami-new" # forces replacement
+                  instance_type = "t2.micro"
+              }
+
+          Plan: 1 to add, 0 to change, 1 to destroy.
+          PLAN
+          fi
+          SCRIPT
+          chmod +x /tmp/fake-terraform.sh
+
+          mkdir -p /tmp/fake-bin
+          cp /tmp/fake-terraform.sh /tmp/fake-bin/terraform
+          chmod +x /tmp/fake-bin/terraform
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: /tmp/tfplan/plan.tfplan
+          terraform-cmd: /tmp/fake-bin/terraform
+          working-directory: /tmp/tfplan
+          skip-comment: "true"
+        env:
+          PATH: /tmp/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+      - name: Assert empty output is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-recreated is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-recreated }}
+        run: |
+          echo "actual num-resources-recreated: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected num-resources-recreated=1 but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-created is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "actual num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-created=0 but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert change-summary mentions re-create
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "actual change-summary: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -q "1 to re-create"; then
+            echo "FAIL: expected '1 to re-create' in change-summary"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown"
+            exit 1
+          fi
+          echo "PASS"

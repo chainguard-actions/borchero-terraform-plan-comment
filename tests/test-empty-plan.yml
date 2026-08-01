@@ -1,0 +1,128 @@
+name: Test empty Terraform plan
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up fake terraform binary and planfile
+        run: |
+          # Create a fake planfile (binary content doesn't matter, terraform is mocked)
+          mkdir -p /tmp/tfplan
+          echo "fake-plan-binary" > /tmp/tfplan/plan.tfplan
+
+          # Create a fake terraform script that returns empty plan JSON and human-readable output
+          cat > /tmp/fake-terraform.sh << 'SCRIPT'
+          #!/bin/sh
+          # Fake terraform: handle "show" subcommand
+          shift  # skip "show"
+          if [ "$1" = "-json" ]; then
+            # Return empty plan JSON (no resource_changes)
+            cat << 'JSON'
+          {
+            "format_version": "1.2",
+            "terraform_version": "1.6.0",
+            "variables": {},
+            "planned_values": {},
+            "resource_changes": [],
+            "configuration": {}
+          }
+          JSON
+          elif [ "$1" = "-no-color" ]; then
+            # Return human-readable empty plan
+            echo "No changes. Your infrastructure matches the configuration."
+            echo ""
+            echo "Terraform has compared your real infrastructure against your configuration"
+            echo "and found no differences, so no changes are needed."
+          fi
+          SCRIPT
+          chmod +x /tmp/fake-terraform.sh
+
+          # Put fake terraform on PATH
+          mkdir -p /tmp/fake-bin
+          cp /tmp/fake-terraform.sh /tmp/fake-bin/terraform
+          chmod +x /tmp/fake-bin/terraform
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: /tmp/tfplan/plan.tfplan
+          terraform-cmd: /tmp/fake-bin/terraform
+          working-directory: /tmp/tfplan
+          skip-comment: "true"
+        env:
+          PATH: /tmp/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+      - name: Assert empty output is true
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty=true but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-created is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "actual num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-created=0 but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-updated is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
+        run: |
+          echo "actual num-resources-updated: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-updated=0 but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-deleted is 0
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
+        run: |
+          echo "actual num-resources-deleted: $ACTUAL"
+          if [ "$ACTUAL" != "0" ]; then
+            echo "FAIL: expected num-resources-deleted=0 but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert change-summary mentions 0 resources
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "actual change-summary: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty change-summary"
+            exit 1
+          fi
+          # Should contain "0 to create"
+          if ! echo "$ACTUAL" | grep -q "0 to create"; then
+            echo "FAIL: expected '0 to create' in change-summary"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert markdown output is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          echo "PASS"
