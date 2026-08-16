@@ -1,4 +1,4 @@
-name: Test skip-empty with custom header
+name: Test empty plan (no changes)
 on:
   workflow_dispatch:
 jobs:
@@ -7,12 +7,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up mock terraform binary (empty plan)
+      - name: Set up mock terraform binary
         run: |
           mkdir -p "$HOME/.local/bin"
           cat > "$HOME/.local/bin/terraform" << 'EOF'
           #!/bin/sh
-          # Mock terraform: returns an empty plan (no resource changes)
+          # Mock terraform: supports "show -json <planfile>" and "show -no-color <planfile>"
           case "$*" in
             *"-json"*)
               cat << 'JSONEOF'
@@ -45,8 +45,6 @@ jobs:
           planfile: /tmp/tfplan.bin
           terraform-cmd: terraform
           working-directory: .
-          header: "🚀 My Custom Plan Header"
-          skip-empty: "true"
           skip-comment: "true"
 
       - name: Assert empty output is true
@@ -60,17 +58,13 @@ jobs:
           fi
           echo "PASS"
 
-      - name: Assert markdown contains custom header
+      - name: Assert markdown output is set
         env:
           ACTUAL: ${{ steps.action.outputs.markdown }}
         run: |
           echo "actual markdown: $ACTUAL"
           if [ -z "$ACTUAL" ]; then
             echo "FAIL: expected markdown to be non-empty"
-            exit 1
-          fi
-          if ! echo "$ACTUAL" | grep -q "My Custom Plan Header"; then
-            echo "FAIL: expected markdown to contain custom header 'My Custom Plan Header'"
             exit 1
           fi
           echo "PASS"

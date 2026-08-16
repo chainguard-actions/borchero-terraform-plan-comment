@@ -1,4 +1,4 @@
-name: Test skip-empty with custom header
+name: Test plan with resource changes
 on:
   workflow_dispatch:
 jobs:
@@ -7,23 +7,40 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up mock terraform binary (empty plan)
+      - name: Set up mock terraform binary with resource changes
         run: |
           mkdir -p "$HOME/.local/bin"
           cat > "$HOME/.local/bin/terraform" << 'EOF'
           #!/bin/sh
-          # Mock terraform: returns an empty plan (no resource changes)
+          # Mock terraform: returns a plan with one resource being created
           case "$*" in
             *"-json"*)
               cat << 'JSONEOF'
           {
             "format_version": "1.0",
-            "resource_changes": []
+            "resource_changes": [
+              {
+                "address": "aws_s3_bucket.example",
+                "change": {
+                  "actions": ["create"]
+                }
+              }
+            ]
           }
           JSONEOF
               ;;
             *"-no-color"*)
-              echo "No changes. Your infrastructure matches the configuration."
+              cat << 'PLANEOF'
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-test-bucket"
+                + id     = (known after apply)
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
+          PLANEOF
               ;;
             *)
               echo "mock terraform: unknown command: $*" >&2
@@ -45,22 +62,20 @@ jobs:
           planfile: /tmp/tfplan.bin
           terraform-cmd: terraform
           working-directory: .
-          header: "🚀 My Custom Plan Header"
-          skip-empty: "true"
           skip-comment: "true"
 
-      - name: Assert empty output is true
+      - name: Assert empty output is false
         env:
           ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
           echo "actual empty: $ACTUAL"
-          if [ "$ACTUAL" != "true" ]; then
-            echo "FAIL: expected empty=true but got '$ACTUAL'"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
 
-      - name: Assert markdown contains custom header
+      - name: Assert markdown contains resource name
         env:
           ACTUAL: ${{ steps.action.outputs.markdown }}
         run: |
@@ -69,8 +84,8 @@ jobs:
             echo "FAIL: expected markdown to be non-empty"
             exit 1
           fi
-          if ! echo "$ACTUAL" | grep -q "My Custom Plan Header"; then
-            echo "FAIL: expected markdown to contain custom header 'My Custom Plan Header'"
+          if ! echo "$ACTUAL" | grep -q "aws_s3_bucket.example"; then
+            echo "FAIL: expected markdown to contain 'aws_s3_bucket.example'"
             exit 1
           fi
           echo "PASS"

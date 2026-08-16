@@ -1,0 +1,66 @@
+name: Test skip-comment flag
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Terraform
+        run: |
+          curl -fsSL https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip -o terraform.zip
+          unzip terraform.zip
+          sudo mv terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: Create Terraform config with a local resource
+        run: |
+          mkdir -p /tmp/tf-nonempty
+          cat > /tmp/tf-nonempty/main.tf <<'EOF'
+          resource "local_file" "example" {
+            content  = "hello"
+            filename = "/tmp/example.txt"
+          }
+          EOF
+          cd /tmp/tf-nonempty
+          terraform init
+          terraform plan -out=/tmp/tf-nonempty/plan.tfplan
+          echo "Plan file created"
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-for-testing
+          planfile: /tmp/tf-nonempty/plan.tfplan
+          terraform-cmd: terraform
+          working-directory: /tmp/tf-nonempty
+          skip-comment: "true"
+
+      - name: Assert empty output is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty to be 'false', got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty is false as expected"
+
+      - name: Assert markdown contains plan content
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown:"
+          echo "$ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected markdown output to be non-empty"
+            exit 1
+          fi
+          echo "PASS: markdown output is set"
