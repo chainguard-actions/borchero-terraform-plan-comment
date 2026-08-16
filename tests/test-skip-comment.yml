@@ -1,0 +1,87 @@
+name: Test skip-comment with changes
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Terraform
+        run: |
+          curl -fsSL https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip -o terraform.zip
+          unzip terraform.zip
+          sudo mv terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: Create Terraform config with a resource
+        run: |
+          mkdir -p /tmp/tf-test
+          cat > /tmp/tf-test/main.tf <<'EOF'
+          terraform {
+            required_providers {
+              local = {
+                source  = "hashicorp/local"
+                version = "~> 2.0"
+              }
+            }
+          }
+          resource "local_file" "hello" {
+            filename = "/tmp/hello.txt"
+            content  = "hello world"
+          }
+          EOF
+
+      - name: Initialize and plan
+        run: |
+          cd /tmp/tf-test
+          terraform init -input=false
+          terraform plan -out=.planfile -input=false
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-not-used
+          planfile: .planfile
+          working-directory: /tmp/tf-test
+          skip-comment: "true"
+
+      - name: Assert markdown output is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "markdown output:"
+          echo "$ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          echo "PASS: markdown output is non-empty"
+
+      - name: Assert empty output is false (plan has changes)
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false for plan with changes, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty is false as expected"
+
+      - name: Assert markdown contains Terraform Plan header
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "markdown: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -q "Terraform Plan"; then
+            echo "FAIL: expected markdown to contain 'Terraform Plan'"
+            exit 1
+          fi
+          echo "PASS: markdown contains 'Terraform Plan'"

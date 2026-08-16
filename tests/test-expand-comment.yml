@@ -1,4 +1,4 @@
-name: Test skip-empty with empty plan
+name: Test expand-comment with delete plan
 on:
   workflow_dispatch:
 jobs:
@@ -7,7 +7,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create fake terraform binary and empty planfile
+      - name: Create fake terraform binary and planfile with delete action
         run: |
           mkdir -p /tmp/tf-test
           echo "fake-planfile-content" > /tmp/tf-test/plan.tfplan
@@ -18,11 +18,12 @@ jobs:
           #!/bin/sh
           case "$*" in
             *"-json"*)
-              # Empty plan - no resource_changes
-              echo '{"format_version":"1.0"}'
+              # Return a valid JSON planfile with a delete action
+              printf '{"format_version":"1.0","resource_changes":[{"address":"aws_s3_bucket.old","change":{"actions":["delete"]}}]}\n'
               ;;
             *"-no-color"*)
-              echo "No changes. Your infrastructure matches the configuration."
+              # Return a human-readable plan showing a resource being deleted
+              printf "Terraform will perform the following actions:\n\n  # aws_s3_bucket.old will be destroyed\n  - resource \"aws_s3_bucket\" \"old\" {\n      - bucket = \"old-bucket\" -> null\n      - id     = \"old-bucket\" -> null\n    }\n\nPlan: 0 to add, 0 to change, 1 to destroy.\n"
               ;;
             *)
               echo "fake terraform: unknown command: $*" >&2
@@ -41,23 +42,23 @@ jobs:
           planfile: /tmp/tf-test/plan.tfplan
           terraform-cmd: terraform
           working-directory: /tmp/tf-test
-          header: "🔍 Custom Header"
-          skip-empty: "true"
+          header: "📝 Terraform Plan"
+          skip-empty: "false"
           skip-comment: "true"
-          expand-comment: "false"
+          expand-comment: "true"
 
-      - name: Assert empty output is true
+      - name: Assert empty output is false
         env:
           ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
           echo "actual empty: $ACTUAL"
-          if [ "$ACTUAL" != "true" ]; then
-            echo "FAIL: expected empty=true but got '$ACTUAL'"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false but got '$ACTUAL'"
             exit 1
           fi
-          echo "PASS: empty=true as expected"
+          echo "PASS: empty=false as expected"
 
-      - name: Assert markdown contains custom header
+      - name: Assert markdown contains deleted resource
         env:
           ACTUAL: ${{ steps.action.outputs.markdown }}
         run: |
@@ -66,8 +67,8 @@ jobs:
             echo "FAIL: expected non-empty markdown output"
             exit 1
           fi
-          if ! echo "$ACTUAL" | grep -q "Custom Header"; then
-            echo "FAIL: expected markdown to contain custom header 'Custom Header'"
+          if ! echo "$ACTUAL" | grep -q "aws_s3_bucket.old"; then
+            echo "FAIL: expected markdown to contain deleted resource 'aws_s3_bucket.old'"
             exit 1
           fi
-          echo "PASS: markdown contains custom header"
+          echo "PASS: markdown contains expected deleted resource"

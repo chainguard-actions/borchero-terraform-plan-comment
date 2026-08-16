@@ -1,4 +1,4 @@
-name: Test skip-empty with empty plan
+name: Test basic usage with empty plan
 on:
   workflow_dispatch:
 jobs:
@@ -7,21 +7,27 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create fake terraform binary and empty planfile
+      - name: Create fake terraform binary and planfile
         run: |
+          # Create a fake planfile (the action passes this to terraform show)
           mkdir -p /tmp/tf-test
           echo "fake-planfile-content" > /tmp/tf-test/plan.tfplan
 
+          # Create a fake terraform binary that handles "show" commands
           mkdir -p /tmp/fake-bin
 
+          # For "terraform show -no-color <planfile>" → human-readable output (empty plan)
+          # For "terraform show -json <planfile>" → JSON output with no resource_changes
           cat > /tmp/fake-bin/terraform << 'EOF'
           #!/bin/sh
+          # Detect which form of "show" is being called
           case "$*" in
             *"-json"*)
-              # Empty plan - no resource_changes
-              echo '{"format_version":"1.0"}'
+              # Return a valid JSON planfile with no resource_changes (empty plan)
+              echo '{"format_version":"1.0","resource_changes":[]}'
               ;;
             *"-no-color"*)
+              # Return a human-readable plan with no changes
               echo "No changes. Your infrastructure matches the configuration."
               ;;
             *)
@@ -41,8 +47,8 @@ jobs:
           planfile: /tmp/tf-test/plan.tfplan
           terraform-cmd: terraform
           working-directory: /tmp/tf-test
-          header: "🔍 Custom Header"
-          skip-empty: "true"
+          header: "📝 Terraform Plan"
+          skip-empty: "false"
           skip-comment: "true"
           expand-comment: "false"
 
@@ -57,7 +63,7 @@ jobs:
           fi
           echo "PASS: empty=true as expected"
 
-      - name: Assert markdown contains custom header
+      - name: Assert markdown output is non-empty
         env:
           ACTUAL: ${{ steps.action.outputs.markdown }}
         run: |
@@ -66,8 +72,4 @@ jobs:
             echo "FAIL: expected non-empty markdown output"
             exit 1
           fi
-          if ! echo "$ACTUAL" | grep -q "Custom Header"; then
-            echo "FAIL: expected markdown to contain custom header 'Custom Header'"
-            exit 1
-          fi
-          echo "PASS: markdown contains custom header"
+          echo "PASS: markdown output is present"

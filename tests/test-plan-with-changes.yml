@@ -1,0 +1,88 @@
+name: Test plan with resource changes
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create fake terraform binary and planfile with changes
+        run: |
+          mkdir -p /tmp/tf-test
+          echo "fake-planfile-content" > /tmp/tf-test/plan.tfplan
+
+          mkdir -p /tmp/fake-bin
+
+          # Human-readable plan output for a resource being created
+          cat > /tmp/tf-test/human-plan.txt << 'HUMANEOF'
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-test-bucket"
+                + id     = (known after apply)
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
+          HUMANEOF
+
+          cat > /tmp/fake-bin/terraform << 'EOF'
+          #!/bin/sh
+          case "$*" in
+            *"-json"*)
+              # Return a valid JSON planfile with a create action
+              printf '{"format_version":"1.0","resource_changes":[{"address":"aws_s3_bucket.example","change":{"actions":["create"]}}]}\n'
+              ;;
+            *"-no-color"*)
+              # Return a human-readable plan showing a resource being created
+              printf "Terraform will perform the following actions:\n\n  # aws_s3_bucket.example will be created\n  + resource \"aws_s3_bucket\" \"example\" {\n      + bucket = \"my-test-bucket\"\n      + id     = (known after apply)\n    }\n\nPlan: 1 to add, 0 to change, 0 to destroy.\n"
+              ;;
+            *)
+              echo "fake terraform: unknown command: $*" >&2
+              exit 1
+              ;;
+          esac
+          EOF
+          chmod +x /tmp/fake-bin/terraform
+
+          echo "PATH=/tmp/fake-bin:$PATH" >> "$GITHUB_ENV"
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: /tmp/tf-test/plan.tfplan
+          terraform-cmd: terraform
+          working-directory: /tmp/tf-test
+          header: "📝 Terraform Plan"
+          skip-empty: "false"
+          skip-comment: "true"
+          expand-comment: "false"
+
+      - name: Assert empty output is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty=false as expected"
+
+      - name: Assert markdown contains plan content
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          # The markdown should contain the resource address
+          if ! echo "$ACTUAL" | grep -q "aws_s3_bucket.example"; then
+            echo "FAIL: expected markdown to contain resource address 'aws_s3_bucket.example'"
+            exit 1
+          fi
+          echo "PASS: markdown contains expected resource"

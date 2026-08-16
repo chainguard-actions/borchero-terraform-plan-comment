@@ -1,0 +1,73 @@
+name: Test empty plan detection
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: pull_request
+      GITHUB_REF: refs/pull/1/merge
+      GITHUB_HEAD_REF: feature-branch
+      GITHUB_BASE_REF: main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Terraform
+        run: |
+          curl -fsSL https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip -o terraform.zip
+          unzip terraform.zip
+          sudo mv terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: Create Terraform config with no resources (empty plan)
+        run: |
+          mkdir -p /tmp/tf-empty
+          cat > /tmp/tf-empty/main.tf <<'EOF'
+          terraform {
+            backend "local" {
+              path = "/tmp/tf-empty.tfstate"
+            }
+          }
+          EOF
+
+      - name: Initialize and plan (should be empty)
+        run: |
+          cd /tmp/tf-empty
+          terraform init -input=false
+          terraform plan -out=.planfile -input=false
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-not-used
+          planfile: .planfile
+          working-directory: /tmp/tf-empty
+          skip-comment: "true"
+
+      - name: Assert empty output is true
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty=true for plan with no changes, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty is true as expected"
+
+      - name: Assert markdown output contains no changes message
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "markdown output:"
+          echo "$ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output even for empty plan"
+            exit 1
+          fi
+          if ! echo "$ACTUAL" | grep -qi "no resource changes\|no changes"; then
+            echo "FAIL: expected markdown to indicate no changes"
+            exit 1
+          fi
+          echo "PASS: markdown correctly indicates no changes"
