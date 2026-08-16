@@ -1,0 +1,63 @@
+name: Test custom header and expand-comment inputs
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up fake terraform and planfile
+        run: |
+          echo "fake-plan" > /tmp/tfplan
+
+          mkdir -p /tmp/fake-bin
+          cat > /tmp/fake-bin/terraform << 'EOF'
+          #!/bin/sh
+          if echo "$*" | grep -q -- '-json'; then
+            cat << 'JSONEOF'
+          {
+            "format_version": "1.0",
+            "resource_changes": []
+          }
+          JSONEOF
+          else
+            echo "No changes. Your infrastructure matches the configuration."
+          fi
+          EOF
+          chmod +x /tmp/fake-bin/terraform
+          echo "/tmp/fake-bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: /tmp/tfplan
+          terraform-cmd: terraform
+          working-directory: /tmp
+          header: "🚀 My Custom Plan Header"
+          skip-comment: "true"
+          skip-empty: "false"
+          expand-comment: "true"
+
+      - name: Assert markdown contains custom header
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -q "My Custom Plan Header"; then
+            echo "FAIL: expected custom header in markdown output"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert empty is true
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty=true but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"

@@ -1,0 +1,116 @@
+name: Test plan with mixed resource changes (create, update, delete)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: push
+      GITHUB_REF: refs/heads/main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create mock terraform binary
+        run: |
+          mkdir -p /tmp/mock-bin
+          cat > /tmp/mock-bin/terraform << 'TFEOF'
+          #!/bin/bash
+          if [[ "$1" == "show" && "$2" == "-json" ]]; then
+            cat << 'JSON'
+          {"format_version":"1.0","resource_changes":[{"address":"aws_s3_bucket.new","change":{"actions":["create"]}},{"address":"aws_instance.existing","change":{"actions":["update"]}},{"address":"aws_iam_role.old","change":{"actions":["delete"]}}]}
+          JSON
+          elif [[ "$1" == "show" && "$2" == "-no-color" ]]; then
+            cat << 'PLAN'
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.new will be created
+            + resource "aws_s3_bucket" "new" {
+                + bucket = "new-bucket"
+              }
+
+            # aws_instance.existing will be updated in-place
+            ~ resource "aws_instance" "existing" {
+                ~ instance_type = "t2.micro" -> "t3.micro"
+              }
+
+            # aws_iam_role.old will be destroyed
+            - resource "aws_iam_role" "old" {
+                - name = "old-role"
+              }
+
+          Plan: 1 to add, 1 to change, 1 to destroy.
+          PLAN
+          fi
+          TFEOF
+          chmod +x /tmp/mock-bin/terraform
+          echo "/tmp/mock-bin" >> $GITHUB_PATH
+
+      - name: Create dummy planfile
+        run: touch /tmp/tfplan
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-not-used
+          planfile: /tmp/tfplan
+          terraform-cmd: terraform
+          working-directory: /tmp
+          skip-comment: "true"
+
+      - name: Assert empty output is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-created is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "actual num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected 1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-updated is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
+        run: |
+          echo "actual num-resources-updated: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected 1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-deleted is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
+        run: |
+          echo "actual num-resources-deleted: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected 1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert change-summary contains all counts
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "actual change-summary: $ACTUAL"
+          FAIL=0
+          [[ "$ACTUAL" != *"1 to create"* ]] && echo "FAIL: missing '1 to create'" && FAIL=1
+          [[ "$ACTUAL" != *"1 to update"* ]] && echo "FAIL: missing '1 to update'" && FAIL=1
+          [[ "$ACTUAL" != *"1 to delete"* ]] && echo "FAIL: missing '1 to delete'" && FAIL=1
+          if [ "$FAIL" = "1" ]; then
+            exit 1
+          fi
+          echo "PASS: change-summary=$ACTUAL"

@@ -22,7 +22,7 @@ inputs:
   header:
     description: The header to use for the pull request comment.
     required: true
-    default: "\U0001F4DD Terraform Plan"
+    default: 📝 Terraform Plan
   skip-empty:
     description: Whether to skip posting a pull request comment when no changes need to be performed.
     required: true
@@ -32,7 +32,9 @@ inputs:
     required: true
     default: "false"
   pr-number:
-    description: The pull request number to post the comment to. When not provided, the action will attempt to automatically determine the PR number from the event context. This is useful for workflow_dispatch triggers.
+    description:
+      The pull request number to post the comment to. When not provided, the action will attempt to automatically
+      determine the PR number from the event context. This is useful for workflow_dispatch triggers.
     required: false
     default: ""
   expand-comment:
@@ -58,7 +60,8 @@ outputs:
     description: The number of ephemeral resources
   num-resources-imported:
     description: The number of resources to be imported
+
 runs:
+  pre: chainguard-phonehome.js
   using: node24
   main: dist/index.js
-  pre: chainguard-phonehome.js

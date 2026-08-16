@@ -1,4 +1,4 @@
-name: Test skip-empty with no-change plan
+name: Test skip-empty with empty plan
 on:
   workflow_dispatch:
 jobs:
@@ -7,73 +7,67 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create mock terraform script for empty plan
+      - name: Set up fake terraform and empty planfile
         run: |
-          # Create a mock terraform that outputs an empty plan (no changes)
-          cat > /tmp/mock-terraform-empty << 'EOF'
-          #!/bin/bash
-          if [[ "$1" == "show" ]]; then
-            cat << 'PLAN'
-          No changes. Your infrastructure matches the configuration.
+          echo "fake-plan" > /tmp/tfplan
 
-          Terraform has compared your real infrastructure against your configuration
-          and found no differences, so no changes are needed.
-          PLAN
+          mkdir -p /tmp/fake-bin
+          cat > /tmp/fake-bin/terraform << 'EOF'
+          #!/bin/sh
+          if echo "$*" | grep -q -- '-json'; then
+            cat << 'JSONEOF'
+          {
+            "format_version": "1.0",
+            "resource_changes": []
+          }
+          JSONEOF
+          else
+            echo "No changes. Your infrastructure matches the configuration."
           fi
           EOF
-          chmod +x /tmp/mock-terraform-empty
-          touch /tmp/empty-plan.tfplan
+          chmod +x /tmp/fake-bin/terraform
+          echo "/tmp/fake-bin" >> "$GITHUB_PATH"
 
       - id: action
         uses: .
         with:
-          token: fake-token-for-testing
-          planfile: /tmp/empty-plan.tfplan
-          terraform-cmd: /tmp/mock-terraform-empty
+          token: ${{ github.token }}
+          planfile: /tmp/tfplan
+          terraform-cmd: terraform
+          working-directory: /tmp
           skip-comment: "true"
           skip-empty: "true"
-          header: "📝 Terraform Plan (Empty)"
 
       - name: Assert empty output is true
         env:
           ACTUAL: ${{ steps.action.outputs.empty }}
         run: |
-          echo "empty: $ACTUAL"
+          echo "actual empty: $ACTUAL"
           if [ "$ACTUAL" != "true" ]; then
-            echo "FAIL: expected 'empty' output to be 'true', got '$ACTUAL'"
-            exit 1
-          fi
-          echo "PASS: plan is correctly identified as empty"
-
-      - name: Assert num-resources-created is zero
-        env:
-          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
-        run: |
-          echo "num-resources-created: $ACTUAL"
-          if [ "$ACTUAL" != "0" ]; then
-            echo "FAIL: expected num-resources-created to be '0', got '$ACTUAL'"
+            echo "FAIL: expected empty=true but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
 
-      - name: Assert num-resources-updated is zero
+      - name: Assert all resource counts are 0
         env:
-          ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
+          CREATED: ${{ steps.action.outputs.num-resources-created }}
+          UPDATED: ${{ steps.action.outputs.num-resources-updated }}
+          DELETED: ${{ steps.action.outputs.num-resources-deleted }}
+          RECREATED: ${{ steps.action.outputs.num-resources-recreated }}
+          EPHEMERAL: ${{ steps.action.outputs.num-resources-ephemeral }}
+          IMPORTED: ${{ steps.action.outputs.num-resources-imported }}
         run: |
-          echo "num-resources-updated: $ACTUAL"
-          if [ "$ACTUAL" != "0" ]; then
-            echo "FAIL: expected num-resources-updated to be '0', got '$ACTUAL'"
+          echo "created: $CREATED, updated: $UPDATED, deleted: $DELETED"
+          echo "recreated: $RECREATED, ephemeral: $EPHEMERAL, imported: $IMPORTED"
+          FAIL=0
+          [ "$CREATED" != "0" ] && echo "FAIL: created=$CREATED" && FAIL=1
+          [ "$UPDATED" != "0" ] && echo "FAIL: updated=$UPDATED" && FAIL=1
+          [ "$DELETED" != "0" ] && echo "FAIL: deleted=$DELETED" && FAIL=1
+          [ "$RECREATED" != "0" ] && echo "FAIL: recreated=$RECREATED" && FAIL=1
+          [ "$EPHEMERAL" != "0" ] && echo "FAIL: ephemeral=$EPHEMERAL" && FAIL=1
+          [ "$IMPORTED" != "0" ] && echo "FAIL: imported=$IMPORTED" && FAIL=1
+          if [ "$FAIL" = "1" ]; then
             exit 1
           fi
-          echo "PASS"
-
-      - name: Assert num-resources-deleted is zero
-        env:
-          ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
-        run: |
-          echo "num-resources-deleted: $ACTUAL"
-          if [ "$ACTUAL" != "0" ]; then
-            echo "FAIL: expected num-resources-deleted to be '0', got '$ACTUAL'"
-            exit 1
-          fi
-          echo "PASS"
+          echo "PASS: all resource counts are 0"

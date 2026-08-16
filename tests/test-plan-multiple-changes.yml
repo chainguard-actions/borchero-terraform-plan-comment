@@ -1,0 +1,171 @@
+name: Test plan with multiple resource change types
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: push
+      GITHUB_REF: refs/heads/main
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create mock terraform binary
+        run: |
+          mkdir -p /tmp/mock-bin
+          cat > /tmp/mock-bin/terraform << 'EOF'
+          #!/bin/bash
+          if [[ "$1" == "show" && "$2" == "-json" ]]; then
+            cat << 'JSONEOF'
+          {
+            "format_version": "1.0",
+            "resource_changes": [
+              {
+                "address": "aws_s3_bucket.created",
+                "change": {
+                  "actions": ["create"]
+                }
+              },
+              {
+                "address": "aws_s3_bucket.updated",
+                "change": {
+                  "actions": ["update"]
+                }
+              },
+              {
+                "address": "aws_s3_bucket.deleted",
+                "change": {
+                  "actions": ["delete"]
+                }
+              },
+              {
+                "address": "aws_s3_bucket.recreated",
+                "change": {
+                  "actions": ["delete", "create"]
+                }
+              }
+            ]
+          }
+          JSONEOF
+          elif [[ "$1" == "show" && "$2" == "-no-color" ]]; then
+            cat << 'PLANEOF'
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.created will be created
+            + resource "aws_s3_bucket" "created" {
+                + bucket = "created-bucket"
+                + id     = (known after apply)
+              }
+
+            # aws_s3_bucket.updated will be updated in-place
+            ~ resource "aws_s3_bucket" "updated" {
+                ~ tags = {
+                    ~ "Name" = "old" -> "new"
+                  }
+              }
+
+            # aws_s3_bucket.deleted will be destroyed
+            - resource "aws_s3_bucket" "deleted" {
+                - bucket = "deleted-bucket"
+              }
+
+            # aws_s3_bucket.recreated must be replaced
+            -/+ resource "aws_s3_bucket" "recreated" {
+                ~ bucket = "old-name" -> "new-name" # forces replacement
+              }
+
+          Plan: 2 to add, 1 to change, 2 to destroy.
+          PLANEOF
+          fi
+          EOF
+          chmod +x /tmp/mock-bin/terraform
+
+      - name: Create dummy planfile
+        run: touch /tmp/tfplan.bin
+
+      - id: action
+        uses: .
+        with:
+          token: fake-token-not-used-for-push
+          planfile: /tmp/tfplan.bin
+          terraform-cmd: /tmp/mock-bin/terraform
+          working-directory: /tmp
+          skip-comment: "true"
+
+      - name: Assert empty is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-created is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-created }}
+        run: |
+          echo "actual num-resources-created: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected num-resources-created=1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-updated is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
+        run: |
+          echo "actual num-resources-updated: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected num-resources-updated=1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-deleted is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
+        run: |
+          echo "actual num-resources-deleted: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected num-resources-deleted=1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert num-resources-recreated is 1
+        env:
+          ACTUAL: ${{ steps.action.outputs.num-resources-recreated }}
+        run: |
+          echo "actual num-resources-recreated: $ACTUAL"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected num-resources-recreated=1, got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS"
+
+      - name: Assert change-summary is correct
+        env:
+          ACTUAL: ${{ steps.action.outputs.change-summary }}
+        run: |
+          echo "actual change-summary: $ACTUAL"
+          if [[ "$ACTUAL" != *"1 to create"* ]]; then
+            echo "FAIL: expected change-summary to contain '1 to create'"
+            exit 1
+          fi
+          if [[ "$ACTUAL" != *"1 to update"* ]]; then
+            echo "FAIL: expected change-summary to contain '1 to update'"
+            exit 1
+          fi
+          if [[ "$ACTUAL" != *"1 to delete"* ]]; then
+            echo "FAIL: expected change-summary to contain '1 to delete'"
+            exit 1
+          fi
+          if [[ "$ACTUAL" != *"1 to re-create"* ]]; then
+            echo "FAIL: expected change-summary to contain '1 to re-create'"
+            exit 1
+          fi
+          echo "PASS"

@@ -1,4 +1,4 @@
-name: Test terraform plan with resource changes
+name: Test terraform plan with mixed resource changes
 on:
   workflow_dispatch:
 jobs:
@@ -7,41 +7,63 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up fake terraform and planfile with changes
+      - name: Set up fake terraform with mixed changes
         run: |
-          # Create a fake planfile
           echo "fake-plan" > /tmp/tfplan
 
-          # Create a fake terraform binary that returns a plan with one resource to create
           mkdir -p /tmp/fake-bin
           cat > /tmp/fake-bin/terraform << 'EOF'
           #!/bin/sh
           if echo "$*" | grep -q -- '-json'; then
-            # Return plan JSON with one resource to create
+            # Return plan JSON with one create, one update, one delete
             cat << 'JSONEOF'
           {
             "format_version": "1.0",
             "resource_changes": [
               {
-                "address": "null_resource.example",
+                "address": "null_resource.to_create",
                 "change": {
                   "actions": ["create"]
+                }
+              },
+              {
+                "address": "null_resource.to_update",
+                "change": {
+                  "actions": ["update"]
+                }
+              },
+              {
+                "address": "null_resource.to_delete",
+                "change": {
+                  "actions": ["delete"]
                 }
               }
             ]
           }
           JSONEOF
           else
-            # Return human-readable plan matching the resource above
+            # Human-readable plan matching the resources above
             cat << 'HREOF'
           Terraform will perform the following actions:
 
-            # null_resource.example will be created
-            + resource "null_resource" "example" {
+            # null_resource.to_create will be created
+            + resource "null_resource" "to_create" {
                 + id = (known after apply)
               }
 
-          Plan: 1 to add, 0 to change, 0 to destroy.
+            # null_resource.to_update will be updated in-place
+            ~ resource "null_resource" "to_update" {
+                ~ triggers = {
+                  ~ "key" = "old" -> "new"
+                }
+              }
+
+            # null_resource.to_delete will be destroyed
+            - resource "null_resource" "to_delete" {
+                - id = "12345" -> null
+              }
+
+          Plan: 1 to add, 1 to change, 1 to destroy.
           HREOF
           fi
           EOF
@@ -75,51 +97,57 @@ jobs:
         run: |
           echo "actual num-resources-created: $ACTUAL"
           if [ "$ACTUAL" != "1" ]; then
-            echo "FAIL: expected num-resources-created=1 but got '$ACTUAL'"
+            echo "FAIL: expected 1 but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
 
-      - name: Assert num-resources-updated is 0
+      - name: Assert num-resources-updated is 1
         env:
           ACTUAL: ${{ steps.action.outputs.num-resources-updated }}
         run: |
           echo "actual num-resources-updated: $ACTUAL"
-          if [ "$ACTUAL" != "0" ]; then
-            echo "FAIL: expected num-resources-updated=0 but got '$ACTUAL'"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected 1 but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
 
-      - name: Assert num-resources-deleted is 0
+      - name: Assert num-resources-deleted is 1
         env:
           ACTUAL: ${{ steps.action.outputs.num-resources-deleted }}
         run: |
           echo "actual num-resources-deleted: $ACTUAL"
-          if [ "$ACTUAL" != "0" ]; then
-            echo "FAIL: expected num-resources-deleted=0 but got '$ACTUAL'"
+          if [ "$ACTUAL" != "1" ]; then
+            echo "FAIL: expected 1 but got '$ACTUAL'"
             exit 1
           fi
           echo "PASS"
 
-      - name: Assert change-summary mentions 1 to create
+      - name: Assert change-summary reflects all change types
         env:
           ACTUAL: ${{ steps.action.outputs.change-summary }}
         run: |
           echo "actual change-summary: $ACTUAL"
-          if ! echo "$ACTUAL" | grep -q "1 to create"; then
-            echo "FAIL: expected '1 to create' in change-summary, got: $ACTUAL"
+          FAIL=0
+          echo "$ACTUAL" | grep -q "1 to create" || { echo "FAIL: missing '1 to create'"; FAIL=1; }
+          echo "$ACTUAL" | grep -q "1 to update" || { echo "FAIL: missing '1 to update'"; FAIL=1; }
+          echo "$ACTUAL" | grep -q "1 to delete" || { echo "FAIL: missing '1 to delete'"; FAIL=1; }
+          if [ "$FAIL" = "1" ]; then
             exit 1
           fi
           echo "PASS"
 
-      - name: Assert markdown contains resource name
+      - name: Assert markdown contains all resource names
         env:
           ACTUAL: ${{ steps.action.outputs.markdown }}
         run: |
           echo "actual markdown: $ACTUAL"
-          if ! echo "$ACTUAL" | grep -q "null_resource.example"; then
-            echo "FAIL: expected 'null_resource.example' in markdown output"
+          FAIL=0
+          echo "$ACTUAL" | grep -q "null_resource.to_create" || { echo "FAIL: missing to_create"; FAIL=1; }
+          echo "$ACTUAL" | grep -q "null_resource.to_update" || { echo "FAIL: missing to_update"; FAIL=1; }
+          echo "$ACTUAL" | grep -q "null_resource.to_delete" || { echo "FAIL: missing to_delete"; FAIL=1; }
+          if [ "$FAIL" = "1" ]; then
             exit 1
           fi
           echo "PASS"
