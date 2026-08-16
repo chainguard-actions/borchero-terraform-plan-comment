@@ -1,0 +1,105 @@
+name: Test custom header in markdown output
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up fake terraform binary and planfile with custom header
+        run: |
+          # Create a fake planfile
+          mkdir -p "$GITHUB_WORKSPACE/tests/fixtures/tf-header"
+          touch "$GITHUB_WORKSPACE/tests/fixtures/tf-header/plan.tfplan"
+
+          # The JSON output - plan with a delete action
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/tf-header/plan.json" << 'EOF'
+          {
+            "format_version": "1.2",
+            "resource_changes": [
+              {
+                "address": "aws_instance.web",
+                "change": {
+                  "actions": ["delete"]
+                }
+              }
+            ]
+          }
+          EOF
+
+          # The human-readable output
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/tf-header/plan.txt" << 'EOF'
+          Terraform will perform the following actions:
+
+            # aws_instance.web will be destroyed
+            - resource "aws_instance" "web" {
+                - ami = "ami-12345678" -> null
+              }
+
+          Plan: 0 to add, 0 to change, 1 to destroy.
+          EOF
+
+          # Write the fake terraform script
+          mkdir -p "$GITHUB_WORKSPACE/tests/fixtures/bin-header"
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/bin-header/terraform" << 'SCRIPT'
+          #!/bin/sh
+          PLANFILE_DIR="$GITHUB_WORKSPACE/tests/fixtures/tf-header"
+          if [ "$1" = "show" ] && [ "$2" = "-json" ]; then
+            cat "$PLANFILE_DIR/plan.json"
+          elif [ "$1" = "show" ] && [ "$2" = "-no-color" ]; then
+            cat "$PLANFILE_DIR/plan.txt"
+          else
+            echo "Unknown command: $*" >&2
+            exit 1
+          fi
+          SCRIPT
+          chmod +x "$GITHUB_WORKSPACE/tests/fixtures/bin-header/terraform"
+
+          # Add fake bin to PATH
+          echo "$GITHUB_WORKSPACE/tests/fixtures/bin-header" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: ${{ github.workspace }}/tests/fixtures/tf-header/plan.tfplan
+          terraform-cmd: terraform
+          working-directory: ${{ github.workspace }}/tests/fixtures/tf-header
+          header: "🚀 My Custom Plan Header"
+          skip-empty: "false"
+          skip-comment: "true"
+          expand-comment: "true"
+
+      - name: Assert markdown contains custom header
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -q "My Custom Plan Header"; then
+            echo "FAIL: expected markdown to contain 'My Custom Plan Header'"
+            exit 1
+          fi
+          echo "PASS: markdown contains custom header"
+
+      - name: Assert empty output is false (plan has deletions)
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty is false as expected"
+
+      - name: Assert markdown contains deleted resource
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -q "aws_instance.web"; then
+            echo "FAIL: expected markdown to contain 'aws_instance.web'"
+            exit 1
+          fi
+          echo "PASS: markdown contains deleted resource"

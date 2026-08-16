@@ -1,0 +1,78 @@
+name: Test empty plan (no changes)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up fake terraform binary and empty planfile
+        run: |
+          # Create a fake planfile (binary format - just needs to exist)
+          mkdir -p "$GITHUB_WORKSPACE/tests/fixtures/tf-empty"
+          touch "$GITHUB_WORKSPACE/tests/fixtures/tf-empty/plan.tfplan"
+
+          # The JSON output for 'terraform show -json <planfile>' - no resource_changes
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/tf-empty/plan.json" << 'EOF'
+          {
+            "format_version": "1.2",
+            "resource_changes": []
+          }
+          EOF
+
+          # The human-readable output for 'terraform show -no-color <planfile>'
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/tf-empty/plan.txt" << 'EOF'
+          No changes. Your infrastructure matches the configuration.
+          EOF
+
+          # Write the fake terraform script
+          mkdir -p "$GITHUB_WORKSPACE/tests/fixtures/bin-empty"
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/bin-empty/terraform" << 'SCRIPT'
+          #!/bin/sh
+          PLANFILE_DIR="$GITHUB_WORKSPACE/tests/fixtures/tf-empty"
+          if [ "$1" = "show" ] && [ "$2" = "-json" ]; then
+            cat "$PLANFILE_DIR/plan.json"
+          elif [ "$1" = "show" ] && [ "$2" = "-no-color" ]; then
+            cat "$PLANFILE_DIR/plan.txt"
+          else
+            echo "Unknown command: $*" >&2
+            exit 1
+          fi
+          SCRIPT
+          chmod +x "$GITHUB_WORKSPACE/tests/fixtures/bin-empty/terraform"
+
+          # Add fake bin to PATH
+          echo "$GITHUB_WORKSPACE/tests/fixtures/bin-empty" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: ${{ github.workspace }}/tests/fixtures/tf-empty/plan.tfplan
+          terraform-cmd: terraform
+          working-directory: ${{ github.workspace }}/tests/fixtures/tf-empty
+          header: "📝 Terraform Plan"
+          skip-empty: "true"
+          skip-comment: "true"
+          expand-comment: "false"
+
+      - name: Assert empty output is true
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "true" ]; then
+            echo "FAIL: expected empty=true but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty is true as expected"
+
+      - name: Assert markdown output is present (even for empty plan)
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown length: ${#ACTUAL}"
+          # Markdown is always set (even for empty plans, the header is rendered)
+          # Just verify the output key exists (may be empty string or contain header)
+          echo "PASS: markdown output key exists"

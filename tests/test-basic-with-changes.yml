@@ -1,0 +1,107 @@
+name: Test basic usage with changes
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up fake terraform binary and planfile
+        run: |
+          # Create a fake planfile (binary format - just needs to exist)
+          mkdir -p "$GITHUB_WORKSPACE/tests/fixtures/tf-basic"
+          touch "$GITHUB_WORKSPACE/tests/fixtures/tf-basic/plan.tfplan"
+
+          # Create a fake terraform binary that handles 'show' commands
+          mkdir -p "$GITHUB_WORKSPACE/tests/fixtures/bin"
+
+          # The JSON output for 'terraform show -json <planfile>'
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/tf-basic/plan.json" << 'EOF'
+          {
+            "format_version": "1.2",
+            "resource_changes": [
+              {
+                "address": "aws_s3_bucket.example",
+                "change": {
+                  "actions": ["create"]
+                }
+              }
+            ]
+          }
+          EOF
+
+          # The human-readable output for 'terraform show -no-color <planfile>'
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/tf-basic/plan.txt" << 'EOF'
+          Terraform will perform the following actions:
+
+            # aws_s3_bucket.example will be created
+            + resource "aws_s3_bucket" "example" {
+                + bucket = "my-bucket"
+              }
+
+          Plan: 1 to add, 0 to change, 0 to destroy.
+          EOF
+
+          # Write the fake terraform script
+          cat > "$GITHUB_WORKSPACE/tests/fixtures/bin/terraform" << 'SCRIPT'
+          #!/bin/sh
+          PLANFILE_DIR="$GITHUB_WORKSPACE/tests/fixtures/tf-basic"
+          if [ "$1" = "show" ] && [ "$2" = "-json" ]; then
+            cat "$PLANFILE_DIR/plan.json"
+          elif [ "$1" = "show" ] && [ "$2" = "-no-color" ]; then
+            cat "$PLANFILE_DIR/plan.txt"
+          else
+            echo "Unknown command: $*" >&2
+            exit 1
+          fi
+          SCRIPT
+          chmod +x "$GITHUB_WORKSPACE/tests/fixtures/bin/terraform"
+
+          # Add fake bin to PATH
+          echo "$GITHUB_WORKSPACE/tests/fixtures/bin" >> "$GITHUB_PATH"
+
+      - id: action
+        uses: .
+        with:
+          token: ${{ github.token }}
+          planfile: ${{ github.workspace }}/tests/fixtures/tf-basic/plan.tfplan
+          terraform-cmd: terraform
+          working-directory: ${{ github.workspace }}/tests/fixtures/tf-basic
+          header: "📝 Terraform Plan"
+          skip-empty: "false"
+          skip-comment: "true"
+          expand-comment: "false"
+
+      - name: Assert empty output is false
+        env:
+          ACTUAL: ${{ steps.action.outputs.empty }}
+        run: |
+          echo "actual empty: $ACTUAL"
+          if [ "$ACTUAL" != "false" ]; then
+            echo "FAIL: expected empty=false but got '$ACTUAL'"
+            exit 1
+          fi
+          echo "PASS: empty is false as expected"
+
+      - name: Assert markdown output is non-empty
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "FAIL: expected non-empty markdown output"
+            exit 1
+          fi
+          echo "PASS: markdown output is non-empty"
+
+      - name: Assert markdown contains resource name
+        env:
+          ACTUAL: ${{ steps.action.outputs.markdown }}
+        run: |
+          echo "actual markdown: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -q "aws_s3_bucket.example"; then
+            echo "FAIL: expected markdown to contain 'aws_s3_bucket.example'"
+            exit 1
+          fi
+          echo "PASS: markdown contains resource name"
